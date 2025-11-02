@@ -90,7 +90,15 @@ public class ExcelParser {
     // --- Helpers for cell reading ---
     private static String getString(Row r, int idx) {
         Cell c = r.getCell(idx);
-        return formatCellAsString(c);
+        String s = formatCellAsString(c);
+        if (s == null) return null;
+        // If the string looks numeric like 12345.0, normalize to 12345
+        try {
+            double d = Double.parseDouble(s);
+            long l = (long) d;
+            if (Math.abs(d - l) < 0.0001) return String.valueOf(l);
+        } catch (NumberFormatException ignored) {}
+        return s;
     }
 
     private static LocalDate getDate(Row r, int idx) {
