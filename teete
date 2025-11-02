@@ -21,6 +21,26 @@ public class ExcelParser {
         public List<String> getErrors() { return errors; }
     }
 
+    // Canonical keys and display names for diagnostic output
+    private static final List<String> CANONICAL_ORDER = Arrays.asList(
+            "empid","name","gender","doj","nsbt batchno","status","grade","bu","mpr no","io name","released date","resignation date"
+    );
+    private static final Map<String,String> DISPLAY_NAME = new LinkedHashMap<>();
+    static {
+        DISPLAY_NAME.put("empid","EMP_ID");
+        DISPLAY_NAME.put("name","NAME");
+        DISPLAY_NAME.put("gender","GENDER");
+        DISPLAY_NAME.put("doj","DOJ");
+        DISPLAY_NAME.put("nsbt batchno","NSBT_BATCH_NO");
+        DISPLAY_NAME.put("status","STATUS");
+        DISPLAY_NAME.put("grade","GRADE");
+        DISPLAY_NAME.put("bu","BU");
+        DISPLAY_NAME.put("mpr no","MPR_NO");
+        DISPLAY_NAME.put("io name","IO_NAME");
+        DISPLAY_NAME.put("released date","RELEASED_DATE");
+        DISPLAY_NAME.put("resignation date","RESIGNATION_DATE");
+    }
+
     // Simple positional parser (keeps legacy behaviour) - expects template column order
     public static ParseResult parse(InputStream in) {
         ParseResult result = new ParseResult();
@@ -154,7 +174,8 @@ public class ExcelParser {
             // Try to find a valid header row within the first 3 rows
             Map<String, Integer> colIndex = Collections.emptyMap();
             int headerRowNum = sheet.getFirstRowNum();
-            for (int hr = sheet.getFirstRowNum(); hr <= sheet.getFirstRowNum() + 2 && hr <= sheet.getLastRowNum(); hr++) {
+            // search first 6 rows for a header (helps when there are notes/blank rows above header)
+            for (int hr = sheet.getFirstRowNum(); hr <= sheet.getFirstRowNum() + 5 && hr <= sheet.getLastRowNum(); hr++) {
                 Row headerRow = sheet.getRow(hr);
                 if (headerRow == null) continue;
                 Map<String, Integer> candidate = safeMapHeader(headerRow);
@@ -194,18 +215,20 @@ public class ExcelParser {
                 if (hdr != null) {
                     StringBuilder mapDiag = new StringBuilder();
                     mapDiag.append(usedPositionalFallback ? "Using positional fallback; mapping: " : "Detected header mapping: ");
-                    List<String> keys = new ArrayList<>(colIndex.keySet());
-                    Collections.sort(keys);
-                    for (String k : keys) {
-                        Integer idx = colIndex.get(k);
-                        String headerText = null;
+
+                    // produce mapping in canonical order for clarity
+                    for (String canonicalKey : CANONICAL_ORDER) {
+                        Integer idx = colIndex.get(canonicalKey);
+                        String headerText = "";
                         if (idx != null) {
                             Cell hc = hdr.getCell(idx);
-                            headerText = formatCellAsString(hc);
+                            String ht = formatCellAsString(hc);
+                            headerText = ht == null ? "" : ht;
                         }
-                        mapDiag.append(String.format("%s->%s(%s); ", k, idx == null ? "-" : idx, headerText == null ? "" : headerText));
+                        String display = DISPLAY_NAME.containsKey(canonicalKey) ? DISPLAY_NAME.get(canonicalKey) : canonicalKey.toUpperCase();
+                        mapDiag.append(String.format("%s->%s(%s); ", display, idx == null ? "-" : idx, headerText.replaceAll("\n"," ").trim()));
                     }
-                    result.errors.add(0, mapDiag.toString());
+                    result.errors.add(0, mapDiag.toString().trim());
                 }
             } catch (Exception ignore) {}
 
@@ -393,13 +416,14 @@ public class ExcelParser {
             if (kn.equals("bu") || kn.contains("businessunit")) {
                 normalized.putIfAbsent("bu", e.getValue());
             }
-            if (kn.contains("mpr") || kn.contains("projectno")) {
+            // MPR: accept common noisy variants like 'mprno', 'mprn0' (zero), 'mpr number'
+            if (kn.contains("mpr") && (kn.contains("no") || kn.contains("_no") || kn.contains("number") || kn.contains("projectno"))) {
                 normalized.putIfAbsent("mpr no", e.getValue());
             }
             // For IO name, require explicit token match (io, immediate, reporting, supervisor, manager)
             // and avoid mapping columns that are date-related (date/release/resign)
             boolean hasDateToken = tokenSet.contains("date") || tokenSet.contains("released") || tokenSet.contains("resign") || tokenSet.contains("resignation") || kn.contains("date");
-            boolean ioToken = tokenSet.contains("io") || tokenSet.contains("i/o") || tokenSet.contains("io_name") || tokenSet.contains("immediate") || tokenSet.contains("immediateofficer") || tokenSet.contains("supervisor") || tokenSet.contains("reporting") || tokenSet.contains("reportingto") || tokenSet.contains("manager");
+            boolean ioToken = tokenSet.contains("io") || tokenSet.contains("i/o") || tokenSet.contains("io_name") || tokenSet.contains("immediate") || tokenSet.contains("immediateofficer") || tokenSet.contains("supervisor") || tokenSet.contains("reporting") || tokenSet.contains("reportingto") || tokenSet.contains("manager") || kn.contains("reportingto");
             if (ioToken && !hasDateToken) {
                 normalized.putIfAbsent("io name", e.getValue());
             }
