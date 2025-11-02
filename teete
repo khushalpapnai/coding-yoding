@@ -267,6 +267,17 @@ public class ExcelParser {
                     e.setResignationDate(resignDate);
                     e.setReleasedDate(releasedDate);
 
+                    // Ensure ranking/grade rules are applied (same rules as positional parser)
+                    if ("Under Training".equalsIgnoreCase(e.getStatus())) {
+                        e.setGrade(null);
+                        e.setRanking(null);
+                    } else if ("Terminated".equalsIgnoreCase(e.getStatus())) {
+                        e.setGrade("D");
+                        e.setRanking("NI");
+                    } else {
+                        e.setRanking(RankingUtil.mapGradeToRanking(e.getGrade(), e.getStatus()));
+                    }
+
                     // Validate
                     List<String> validationErrors = ValidationUtil.validate(e);
                     if (!validationErrors.isEmpty()) {
