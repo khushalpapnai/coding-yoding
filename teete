@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
+import java.util.Locale;
 
 public class ExcelParser {
 
@@ -20,7 +21,7 @@ public class ExcelParser {
         public List<String> getErrors() { return errors; }
     }
 
-    // === Positional parser (for template order) ===
+    // Simple positional parser (keeps legacy behaviour) - expects template column order
     public static ParseResult parse(InputStream in) {
         ParseResult result = new ParseResult();
         try (Workbook wb = WorkbookFactory.create(in)) {
@@ -30,21 +31,21 @@ public class ExcelParser {
                 if (row == null) continue;
                 try {
                     Employee e = new Employee();
-                    // --- Updated canonical order ---
-                    e.setEmpId(getString(row, 0));
-                    e.setName(getString(row, 1));
-                    e.setGender(getString(row, 2));
-                    e.setDoj(getDate(row, 3));
-                    e.setNsbtBatchNo(getString(row, 4));
-                    e.setStatus(getString(row, 5));
-                    e.setGrade(getString(row, 6));
-                    e.setBu(getString(row, 7));
-                    e.setMprNo(getString(row, 8));
-                    e.setIoName(getString(row, 9));
-                    e.setReleasedDate(getDate(row, 10));
-                    e.setResignationDate(getDate(row, 11));
+                    // Template canonical order (positional)
+                    e.setEmpId(getString(row,0));
+                    e.setName(getString(row,1));
+                    e.setGender(getString(row,2));
+                    e.setDoj(getDate(row,3));
+                    e.setNsbtBatchNo(getString(row,4));
+                    e.setStatus(getString(row,5));
+                    e.setGrade(getString(row,6));
+                    e.setBu(getString(row,7));
+                    e.setMprNo(getString(row,8));
+                    e.setIoName(getString(row,9));
+                    e.setReleasedDate(getDate(row,10));
+                    e.setResignationDate(getDate(row,11));
 
-                    // Apply ranking logic
+                    // Apply ranking based on status and grade
                     if ("Under Training".equalsIgnoreCase(e.getStatus())) {
                         e.setGrade(null);
                         e.setRanking(null);
@@ -57,7 +58,7 @@ public class ExcelParser {
 
                     result.getEmployees().add(e);
                 } catch (Exception ex) {
-                    result.getErrors().add("Row " + (i + 1) + ": " + ex.getMessage());
+                    result.getErrors().add("Row " + (i+1) + ": " + ex.getMessage());
                 }
             }
         } catch (Exception e) {
@@ -66,7 +67,7 @@ public class ExcelParser {
         return result;
     }
 
-    // --- Helpers ---
+    // --- Helpers for cell reading ---
     private static String getString(Row r, int idx) {
         Cell c = r.getCell(idx);
         return formatCellAsString(c);
@@ -83,6 +84,7 @@ public class ExcelParser {
         return parseLenientDate(s);
     }
 
+    // Robust formatter (handles formulas, numeric, date formatting and trims/normalizes whitespace)
     private static String formatCellAsString(Cell c) {
         if (c == null) return null;
         try {
@@ -91,15 +93,24 @@ public class ExcelParser {
             FormulaEvaluator evaluator = wb.getCreationHelper().createFormulaEvaluator();
             String text = formatter.formatCellValue(c, evaluator);
             if (text == null) return null;
+            // Normalize non-breaking/zero-width/unprintable spaces to regular space
             text = text.replace('\u00A0', ' ').replace('\u200B', ' ').replace('\uFEFF', ' ');
             text = text.replaceAll("\\s+", " ").trim();
             return text.isEmpty() ? null : text;
         } catch (Exception ex) {
-            return c.toString().trim();
+            try {
+                String t = c.toString();
+                if (t == null) return null;
+                t = t.replace('\u00A0', ' ').replace('\u200B', ' ').replace('\uFEFF', ' ');
+                t = t.replaceAll("\\s+", " ").trim();
+                return t.isEmpty() ? null : t;
+            } catch (Exception e) {
+                return null;
+            }
         }
     }
 
-    // --- Date parsing setup ---
+    // Date parsers
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("dd-MM-yyyy");
     private static final DateTimeFormatter DTF_DD_MMM_YYYY = DateTimeFormatter.ofPattern("dd-MMM-yyyy", Locale.ENGLISH);
     private static final DateTimeFormatter DTF_DD_MMM_YY = DateTimeFormatter.ofPattern("dd-MMM-yy", Locale.ENGLISH);
@@ -113,22 +124,24 @@ public class ExcelParser {
     private static LocalDate parseLenientDate(String s) {
         if (s == null) throw new DateTimeParseException("null", "", 0);
         for (DateTimeFormatter fmt : DATE_FORMATTERS) {
-            try { return LocalDate.parse(s, fmt); }
-            catch (DateTimeParseException ignored) {}
+            try {
+                return LocalDate.parse(s, fmt);
+            } catch (DateTimeParseException ignored) {}
         }
         String cleaned = s.replace('.', '-').replaceAll("\\s+", "-").replaceAll("[^0-9A-Za-z-]", "-");
         for (DateTimeFormatter fmt : DATE_FORMATTERS) {
-            try { return LocalDate.parse(cleaned, fmt); }
-            catch (DateTimeParseException ignored) {}
+            try {
+                return LocalDate.parse(cleaned, fmt);
+            } catch (DateTimeParseException ignored) {}
         }
-        throw new DateTimeParseException("Unrecognized date format: " + s, s, 0);
+        throw new DateTimeParseException("Text '" + s + "' could not be parsed as a supported date format", s, 0);
     }
 
     private static final Set<String> ALLOWED_STATUS = new HashSet<>(Arrays.asList(
             "Allocated", "Under Training", "Resigned", "Terminated", "Temp Allocation", "Waiting for Allocation"
     ));
 
-    // === Header-aware parser ===
+    // Header-aware parser that maps columns by header name (robust to minor header variations)
     public static ParseResult parseXlsx(InputStream in) throws Exception {
         ParseResult result = new ParseResult();
         try (Workbook wb = new XSSFWorkbook(in)) {
@@ -138,22 +151,27 @@ public class ExcelParser {
                 return result;
             }
 
+            // Try to find a valid header row within the first 3 rows
             Map<String, Integer> colIndex = Collections.emptyMap();
             int headerRowNum = sheet.getFirstRowNum();
             for (int hr = sheet.getFirstRowNum(); hr <= sheet.getFirstRowNum() + 2 && hr <= sheet.getLastRowNum(); hr++) {
                 Row headerRow = sheet.getRow(hr);
                 if (headerRow == null) continue;
                 Map<String, Integer> candidate = safeMapHeader(headerRow);
-                if (!candidate.isEmpty() && candidate.containsKey("empid") && candidate.containsKey("name")) {
-                    colIndex = candidate;
-                    headerRowNum = hr;
-                    break;
+                if (!candidate.isEmpty()) {
+                    boolean ok = true;
+                    for (String req : new String[]{"empid", "name", "status", "doj"}) {
+                        if (!candidate.containsKey(req)) { ok = false; break; }
+                    }
+                    if (ok) { colIndex = candidate; headerRowNum = hr; break; }
                 }
             }
 
+            // Fallback to positional template order if header not detected
             boolean usedPositionalFallback = false;
             if (colIndex.isEmpty()) {
                 usedPositionalFallback = true;
+                // Update column mapping to match the new sequence
                 Map<String, Integer> positional = new HashMap<>();
                 positional.put("empid", 0);
                 positional.put("name", 1);
@@ -170,48 +188,114 @@ public class ExcelParser {
                 colIndex = positional;
             }
 
+            // Add diagnostic mapping info (helps debugging header detection)
+            try {
+                Row hdr = sheet.getRow(headerRowNum);
+                if (hdr != null) {
+                    StringBuilder mapDiag = new StringBuilder();
+                    mapDiag.append(usedPositionalFallback ? "Using positional fallback; mapping: " : "Detected header mapping: ");
+                    List<String> keys = new ArrayList<>(colIndex.keySet());
+                    Collections.sort(keys);
+                    for (String k : keys) {
+                        Integer idx = colIndex.get(k);
+                        String headerText = null;
+                        if (idx != null) {
+                            Cell hc = hdr.getCell(idx);
+                            headerText = formatCellAsString(hc);
+                        }
+                        mapDiag.append(String.format("%s->%s(%s); ", k, idx == null ? "-" : idx, headerText == null ? "" : headerText));
+                    }
+                    result.errors.add(0, mapDiag.toString());
+                }
+            } catch (Exception ignore) {}
+
+
+            // iterate rows after header
             for (int r = headerRowNum + 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
                 if (row == null) continue;
                 int rowNum = row.getRowNum() + 1;
 
+                String empid = getCellString(row, colIndex.get("empid"));
+                if (empid == null || empid.trim().isEmpty()) {
+                    result.errors.add("Row " + rowNum + ": empid is empty");
+                    continue;
+                }
+                Employee e = new Employee();
+                e.setEmpId(empid.trim());
+                e.setName(getCellString(row, colIndex.get("name")));
+                e.setGender(getCellString(row, colIndex.get("gender")));
+                e.setNsbtBatchNo(getCellString(row, colIndex.get("nsbt batchno")));
+                String status = getCellString(row, colIndex.get("status"));
+                if (status == null) status = "";
+                status = status.trim();
+                if (!ALLOWED_STATUS.contains(status)) {
+                    result.errors.add("Row " + rowNum + ": invalid status '" + status + "'");
+                    continue;
+                }
+                e.setStatus(status);
+
+                // read fields required for validation BEFORE date checks
+                e.setGrade(getCellString(row, colIndex.get("grade")));
+                e.setBu(getCellString(row, colIndex.get("bu")));
+                e.setMprNo(getCellString(row, colIndex.get("mpr no")));
+                e.setIoName(getCellString(row, colIndex.get("io name")));
+
                 try {
-                    Employee e = new Employee();
-                    e.setEmpId(getCellString(row, colIndex.get("empid")));
-                    if (e.getEmpId() == null) {
-                        result.errors.add("Row " + rowNum + ": Missing EMP_ID");
+                    LocalDate doj = parseDateCell(row, colIndex.get("doj"));
+                    LocalDate resignDate = parseDateCell(row, colIndex.get("resignation date"));
+                    LocalDate releasedDate = parseDateCell(row, colIndex.get("released date"));
+
+                    if (doj == null) {
+                        result.errors.add("Row " + rowNum + ": DOJ is required");
                         continue;
                     }
-                    e.setName(getCellString(row, colIndex.get("name")));
-                    e.setGender(getCellString(row, colIndex.get("gender")));
-                    e.setNsbtBatchNo(getCellString(row, colIndex.get("nsbt batchno")));
-                    e.setStatus(getCellString(row, colIndex.get("status")));
-                    e.setGrade(getCellString(row, colIndex.get("grade")));
-                    e.setBu(getCellString(row, colIndex.get("bu")));
-                    e.setMprNo(getCellString(row, colIndex.get("mpr no")));
-                    e.setIoName(getCellString(row, colIndex.get("io name")));
-
-                    LocalDate doj = parseDateCell(row, colIndex.get("doj"));
-                    LocalDate releasedDate = parseDateCell(row, colIndex.get("released date"));
-                    LocalDate resignationDate = parseDateCell(row, colIndex.get("resignation date"));
+                    if (doj.isAfter(LocalDate.now())) {
+                        result.errors.add("Row " + rowNum + ": DOJ cannot be in the future");
+                        continue;
+                    }
+                    if (resignDate != null && resignDate.isBefore(doj)) {
+                        result.errors.add("Row " + rowNum + ": Resignation date cannot be before DOJ");
+                        continue;
+                    }
+                    if (releasedDate != null && releasedDate.isBefore(doj)) {
+                        result.errors.add("Row " + rowNum + ": Release date cannot be before DOJ");
+                        continue;
+                    }
 
                     e.setDoj(doj);
+                    e.setResignationDate(resignDate);
                     e.setReleasedDate(releasedDate);
-                    e.setResignationDate(resignationDate);
 
-                    result.employees.add(e);
+                    // Validate
+                    List<String> validationErrors = ValidationUtil.validate(e);
+                    if (!validationErrors.isEmpty()) {
+                        String diag = String.format(" [parsed: EMPID=%s, IO_NAME=%s, BU=%s, MPR_NO=%s]",
+                                e.getEmpId(), e.getIoName(), e.getBu(), e.getMprNo());
+                        result.errors.add("Row " + rowNum + ": " + String.join(", ", validationErrors) + diag);
+                        continue;
+                    }
+
+                } catch (DateTimeParseException dtpe) {
+                    result.errors.add("Row " + rowNum + ": invalid date format - " + dtpe.getMessage());
+                    continue;
                 } catch (Exception ex) {
                     result.errors.add("Row " + rowNum + ": " + ex.getMessage());
+                    continue;
                 }
+
+                result.employees.add(e);
             }
 
             if (usedPositionalFallback) {
-                result.errors.add(0, "Warning: header not detected; positional fallback used (new template order).");
+                result.errors.add(0, "Warning: header row not detected; positional fallback used (assuming template column order). If columns are shifted, please use the provided template and do not merge header cells.");
             }
+
         }
         return result;
     }
 
+    // Return string value for cell index (handles numeric/date via formatCellAsString)
     private static String getCellString(Row row, Integer idx) {
         if (idx == null) return null;
         Cell c = row.getCell(idx);
@@ -220,21 +304,33 @@ public class ExcelParser {
             LocalDate d = c.getLocalDateTimeCellValue().toLocalDate();
             return d.format(DTF);
         }
-        return formatCellAsString(c);
+        String s = formatCellAsString(c);
+        if (s == null) return null;
+        // if numeric-looking like 12345.0 -> 12345
+        try {
+            double dval = Double.parseDouble(s);
+            long l = (long) dval;
+            if (Math.abs(dval - l) < 0.0001) return String.valueOf(l);
+            return s;
+        } catch (NumberFormatException nfe) {
+            return s.isBlank() ? null : s;
+        }
     }
 
     private static LocalDate parseDateCell(Row row, Integer idx) {
         if (idx == null) return null;
         Cell c = row.getCell(idx);
         if (c == null) return null;
-        if (c.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(c))
+        if (c.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(c)) {
             return c.getLocalDateTimeCellValue().toLocalDate();
-        String s = formatCellAsString(c);
-        if (s == null || s.isEmpty()) return null;
-        return parseLenientDate(s);
+        } else {
+            String s = formatCellAsString(c);
+            if (s == null || s.isEmpty()) return null;
+            return parseLenientDate(s);
+        }
     }
 
-    // --- Fixed header mapping (corrected keys) ---
+    // Safe header mapping - returns canonical keys mapped to column index
     private static Map<String, Integer> safeMapHeader(Row header) {
         Map<String, Integer> idx = new HashMap<>();
         if (header == null) return idx;
@@ -245,19 +341,57 @@ public class ExcelParser {
         }
         Map<String, Integer> normalized = new HashMap<>();
         for (Map.Entry<String, Integer> e : idx.entrySet()) {
-            String k = e.getKey().replaceAll("[^a-z0-9]", "");
-            if (k.contains("empid")) normalized.put("empid", e.getValue());
-            if (k.contains("name")) normalized.put("name", e.getValue());
-            if (k.contains("gender") || k.equals("sex")) normalized.put("gender", e.getValue());
-            if (k.contains("doj") || k.contains("dateofjoining")) normalized.put("doj", e.getValue());
-            if (k.contains("nsbt") || k.contains("batchno")) normalized.put("nsbt batchno", e.getValue());
-            if (k.contains("status")) normalized.put("status", e.getValue());
-            if (k.contains("grade")) normalized.put("grade", e.getValue());
-            if (k.equals("bu") || k.contains("businessunit")) normalized.put("bu", e.getValue());
-            if (k.contains("mpr")) normalized.put("mpr no", e.getValue());
-            if (k.contains("io") || k.contains("immediateofficer")) normalized.put("io name", e.getValue());
-            if (k.contains("released")) normalized.put("released date", e.getValue());
-            if (k.contains("resignation") || k.contains("leaving")) normalized.put("resignation date", e.getValue());
+            String k = e.getKey().toLowerCase().trim();
+            k = k.replaceAll("[\\u00A0\\u200B\\uFEFF]", " ").trim();
+            String kn = k.replaceAll("[^a-z0-9]", "");
+
+            // split into tokens to avoid accidental substring matches (e.g. 'position' containing 'io')
+            String[] tokens = k.split("[^a-z0-9]+");
+            Set<String> tokenSet = new HashSet<>();
+            for (String t : tokens) {
+                if (!t.isEmpty()) tokenSet.add(t);
+            }
+
+            if (kn.contains("empid") || kn.contains("employeeid")) {
+                normalized.putIfAbsent("empid", e.getValue());
+            }
+            if (kn.equals("name") || kn.contains("employeename")) {
+                normalized.putIfAbsent("name", e.getValue());
+            }
+            if (kn.contains("gender") || kn.equals("sex")) {
+                normalized.putIfAbsent("gender", e.getValue());
+            }
+            if (kn.contains("doj") || kn.contains("dateofjoin") || kn.contains("dateofjoining")) {
+                normalized.putIfAbsent("doj", e.getValue());
+            }
+            if (kn.contains("resign") || kn.contains("resiz") || kn.contains("leavingdate") || kn.contains("resignationdate")) {
+                normalized.putIfAbsent("resignation date", e.getValue());
+            }
+            if (kn.contains("released") || kn.contains("releasedate") || kn.contains("releasedon")) {
+                normalized.putIfAbsent("released date", e.getValue());
+            }
+            if ((kn.contains("nsbt") || kn.contains("batch")) && kn.contains("no")) {
+                normalized.putIfAbsent("nsbt batchno", e.getValue());
+            }
+            if (kn.contains("status") || kn.contains("employeestatus")) {
+                normalized.putIfAbsent("status", e.getValue());
+            }
+            if (kn.contains("grade") || kn.contains("employeegrade")) {
+                normalized.putIfAbsent("grade", e.getValue());
+            }
+            if (kn.equals("bu") || kn.contains("businessunit")) {
+                normalized.putIfAbsent("bu", e.getValue());
+            }
+            if (kn.contains("mpr") || kn.contains("projectno")) {
+                normalized.putIfAbsent("mpr no", e.getValue());
+            }
+            // For IO name, require explicit token match (io, immediate, reporting, supervisor, manager)
+            // and avoid mapping columns that are date-related (date/release/resign)
+            boolean hasDateToken = tokenSet.contains("date") || tokenSet.contains("released") || tokenSet.contains("resign") || tokenSet.contains("resignation") || kn.contains("date");
+            boolean ioToken = tokenSet.contains("io") || tokenSet.contains("i/o") || tokenSet.contains("io_name") || tokenSet.contains("immediate") || tokenSet.contains("immediateofficer") || tokenSet.contains("supervisor") || tokenSet.contains("reporting") || tokenSet.contains("reportingto") || tokenSet.contains("manager");
+            if (ioToken && !hasDateToken) {
+                normalized.putIfAbsent("io name", e.getValue());
+            }
         }
         return normalized;
     }
