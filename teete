@@ -76,6 +76,38 @@ public class ExcelParser {
                         e.setRanking(RankingUtil.mapGradeToRanking(e.getGrade(), e.getStatus()));
                     }
 
+                    // Row-level date/business validation (same rules as header-aware parser)
+                    int rowNum = row.getRowNum() + 1;
+                    LocalDate doj = e.getDoj();
+                    LocalDate resignDate = e.getResignationDate();
+                    LocalDate releasedDate = e.getReleasedDate();
+
+                    if (doj == null) {
+                        result.getErrors().add("Row " + rowNum + ": DOJ is required");
+                        continue;
+                    }
+                    if (doj.isAfter(LocalDate.now())) {
+                        result.getErrors().add("Row " + rowNum + ": DOJ cannot be in the future");
+                        continue;
+                    }
+                    if (resignDate != null && resignDate.isBefore(doj)) {
+                        result.getErrors().add("Row " + rowNum + ": Resignation date cannot be before DOJ");
+                        continue;
+                    }
+                    if (releasedDate != null && releasedDate.isBefore(doj)) {
+                        result.getErrors().add("Row " + rowNum + ": Release date cannot be before DOJ");
+                        continue;
+                    }
+
+                    // Validate business rules using ValidationUtil
+                    List<String> validationErrors = ValidationUtil.validate(e);
+                    if (!validationErrors.isEmpty()) {
+                        String diag = String.format(" [parsed: EMPID=%s, IO_NAME=%s, BU=%s, MPR_NO=%s]",
+                                e.getEmpId(), e.getIoName(), e.getBu(), e.getMprNo());
+                        result.getErrors().add("Row " + rowNum + ": " + String.join(", ", validationErrors) + diag);
+                        continue;
+                    }
+
                     result.getEmployees().add(e);
                 } catch (Exception ex) {
                     result.getErrors().add("Row " + (i+1) + ": " + ex.getMessage());
