@@ -283,6 +283,48 @@ document.querySelector('button[type="reset"]').addEventListener('click', functio
     document.getElementById('searchForm').reset();
     window.location = '${pageContext.request.contextPath}/search';
 });
+
+// Ensure BU / NSBT dropdowns are populated even when server-side attributes
+// were not present (covers cached pages or AJAX-heavy flows). If a select
+// only contains the default "Any" option, fetch options via JSON and
+// populate them.
+document.addEventListener('DOMContentLoaded', function() {
+    var ctx = '${pageContext.request.contextPath}';
+    var buSelect = document.getElementById('bu');
+    var nsbtSelect = document.getElementById('nsbtBatchNo');
+
+    function populateSelect(selectEl, items, currentValue) {
+        if (!selectEl || !items) return;
+        // Keep the first option (Any) and remove others
+        while (selectEl.options.length > 1) selectEl.remove(1);
+        items.forEach(function(it) {
+            var opt = document.createElement('option');
+            opt.value = it;
+            opt.text = it;
+            if (currentValue && currentValue === it) opt.selected = true;
+            selectEl.appendChild(opt);
+        });
+    }
+
+    var needBu = buSelect && buSelect.options.length <= 1;
+    var needNsbt = nsbtSelect && nsbtSelect.options.length <= 1;
+    if (!needBu && !needNsbt) return;
+
+    // Fetch options from server (servlet includes buOptions/nsbtBatchOptions in JSON)
+    fetch(ctx + '/search?format=json&getOptions=true')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (needBu && data.buOptions) {
+                populateSelect(buSelect, data.buOptions, '${param.bu}');
+            }
+            if (needNsbt && data.nsbtBatchOptions) {
+                populateSelect(nsbtSelect, data.nsbtBatchOptions, '${param.nsbtBatchNo}');
+            }
+        }).catch(function(err) {
+            // ignore failures; selects will remain with default option
+            console.warn('Failed to fetch BU/NSBT options', err);
+        });
+});
 </script>
 
 <jsp:include page="fragments/messages.jsp"/>
