@@ -1,9 +1,21 @@
+ List<String> buOptions = new ArrayList<>();
+        List<String> nsbtBatchOptions = new ArrayList<>();
+        try {
+            buOptions = dao.getDistinctBu();
+            nsbtBatchOptions = dao.getDistinctNsbtBatchNos();
+        } catch (Exception e) {
+            
+        }
+        
+        req.setAttribute("buOptions", buOptions);
+        req.setAttribute("nsbtBatchOptions", nsbtBatchOptions);
 
- try {
-                    req.setAttribute("buOptions", dao.getDistinctBu());
-                    req.setAttribute("nsbtBatchOptions", dao.getDistinctNsbtBatchNos());
-                } catch (Exception e) {
-                    // don't fail the whole request if dropdown fetch fails; log and continue
-                    req.setAttribute("buOptions", new java.util.ArrayList<>());
-                    req.setAttribute("nsbtBatchOptions", new java.util.ArrayList<>());
-                }
+  try {
+            result.put("buOptions", dao.getDistinctBu());
+        } catch (Exception ignored) {}
+        try {
+            result.put("nsbtBatchOptions", dao.getDistinctNsbtBatchNos());
+        } catch (Exception ignored) {}
+
+
+
