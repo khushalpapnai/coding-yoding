@@ -1,144 +1,289 @@
-package org.trainman.servlet;
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
+<%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+<%@ taglib prefix="fmt" uri="http://java.sun.com/jsp/jstl/fmt" %>
+<jsp:include page="fragments/header.jsp"/>
 
-import org.trainman.dao.EmployeeDao;
-import org.trainman.model.Employee;
-import org.trainman.service.util.ExcelParser;
-import org.trainman.service.util.ValidationUtil;
+<div class="row">
+    <!-- Search Form -->
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <i class="fas fa-filter me-2"></i>Search Filters
+            </div>
+            <div class="card-body">
+                <form method="get" action="${pageContext.request.contextPath}/search" id="searchForm">
+                    <!-- Basic Filters -->
+                    <div class="mb-3">
+                        <label for="empId" class="form-label">Employee ID</label>
+                        <input type="text" class="form-control" id="empId" name="empId" 
+                               value="${param.empId}" placeholder="Enter Employee ID">
+                    </div>
 
-import javax.servlet.ServletException;
-import javax.servlet.annotation.MultipartConfig;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.*;
-import java.io.IOException;
-import java.util.*;
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="name" name="name" 
+                               value="${param.name}" placeholder="Enter Name">
+                    </div>
 
-@WebServlet("/upload")
-@MultipartConfig(
-    fileSizeThreshold = 1024 * 1024,  // 1 MB
-    maxFileSize = 1024 * 1024 * 10,   // 10 MB
-    maxRequestSize = 1024 * 1024 * 15  // 15 MB
-)
-public class UploadServlet extends HttpServlet {
-    private final EmployeeDao dao = new EmployeeDao();
-    
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
-            throws ServletException, IOException {
-        req.getRequestDispatcher("/jsp/upload.jsp").forward(req, resp);
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="gender" class="form-label">Gender</label>
+                            <select class="form-select" id="gender" name="gender">
+                                <option value="" ${param.gender == '' ? 'selected' : ''}>Any</option>
+                                <option value="Male" ${param.gender == 'Male' ? 'selected' : ''}>Male</option>
+                                <option value="Female" ${param.gender == 'Female' ? 'selected' : ''}>Female</option>
+                                <option value="Other" ${param.gender == 'Other' ? 'selected' : ''}>Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="grade" class="form-label">Grade</label>
+                            <select class="form-select" id="grade" name="grade">
+                                <option value="" ${param.grade == '' ? 'selected' : ''}>Any</option>
+                                <option value="A+" ${param.grade == 'A+' ? 'selected' : ''}>A+</option>
+                                <option value="A" ${param.grade == 'A' ? 'selected' : ''}>A</option>
+                                <option value="B" ${param.grade == 'B' ? 'selected' : ''}>B</option>
+                                <option value="C" ${param.grade == 'C' ? 'selected' : ''}>C</option>
+                                <option value="D" ${param.grade == 'D' ? 'selected' : ''}>D</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="bu" class="form-label">BU</label>
+                        <select class="form-select" id="bu" name="bu">
+                            <option value="">Any</option>
+                            <c:forEach items="${buOptions}" var="b">
+                                <option value="${b}" ${param.bu == b ? 'selected' : ''}>${b}</option>
+                            </c:forEach>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="nsbtBatchNo" class="form-label">NSBT Batch No</label>
+                        <select class="form-select" id="nsbtBatchNo" name="nsbtBatchNo">
+                            <option value="">Any</option>
+                            <c:forEach items="${nsbtBatchOptions}" var="n">
+                                <option value="${n}" ${param.nsbtBatchNo == n ? 'selected' : ''}>${n}</option>
+                            </c:forEach>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="mprNo" class="form-label">MPR No</label>
+                        <input type="text" class="form-control" id="mprNo" name="mprNo" value="${param.mprNo}" placeholder="Enter MPR No">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="status" class="form-label">Status</label>
+                        <select class="form-select" id="status" name="status" multiple size="6">
+                            <c:forEach items="${['Allocated', 'Temp Allocation', 'Under Training', 
+                                               'Resigned', 'Terminated', 'Waiting for Allocation']}" 
+                                      var="option">
+                                <option value="${option}" 
+                                    ${param.status.contains(option) ? 'selected' : ''}>
+                                    ${option}
+                                </option>
+                            </c:forEach>
+                        </select>
+                        <small class="text-muted">Hold Ctrl/Cmd to select multiple</small>
+                    </div>
+
+                    <!-- Date Range Filters -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <i class="fas fa-calendar me-2"></i>Date Range
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <label for="dateField" class="form-label">Date Field</label>
+                                <select class="form-select" id="dateField" name="dateField">
+                                    <option value="">-- Select Field --</option>
+                                    <option value="DOJ" ${param.dateField == 'DOJ' ? 'selected' : ''}>
+                                        Date of Joining
+                                    </option>
+                                    <option value="RELEASED_DATE" ${param.dateField == 'RELEASED_DATE' ? 'selected' : ''}>
+                                        Released Date
+                                    </option>
+                                    <option value="RESIGNATION_DATE" ${param.dateField == 'RESIGNATION_DATE' ? 'selected' : ''}>
+                                        Resignation Date
+                                    </option>
+                                </select>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-6">
+                                    <label for="startDate" class="form-label">Start Date</label>
+                                    <input type="date" class="form-control" id="startDate" 
+                                           name="startDate" value="${param.startDate}">
+                                </div>
+                                <div class="col-6">
+                                    <label for="endDate" class="form-label">End Date</label>
+                                    <input type="date" class="form-control" id="endDate" 
+                                           name="endDate" value="${param.endDate}">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search me-2"></i>Search
+                        </button>
+                        <button type="reset" class="btn btn-secondary">
+                            <i class="fas fa-redo me-2"></i>Reset
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Table -->
+    <div class="col-md-9">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas fa-table me-2"></i>Search Results
+                    <c:if test="${not empty employees}">
+                        <span class="badge bg-light text-dark ms-2">
+                            ${employees.size()} results
+                        </span>
+                    </c:if>
+                </div>
+                <div class="btn-group">
+                    <a href="${pageContext.request.contextPath}/export?${pageContext.request.queryString}" 
+                       class="btn btn-sm btn-outline-light">
+                        <i class="fas fa-file-excel me-1"></i>Export
+                    </a>
+                    <a href="${pageContext.request.contextPath}/bulkEdit?${pageContext.request.queryString}" 
+                       class="btn btn-sm btn-outline-light">
+                        <i class="fas fa-edit me-1"></i>Bulk Edit
+                    </a>
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Grade</th>
+                            <th>BU</th>
+                            <th>MPR</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <c:choose>
+                            <c:when test="${empty employees}">
+                                <tr>
+                                    <td colspan="7" class="text-center py-4">
+                                        <i class="fas fa-search me-2"></i>
+                                        No employees found matching your criteria
+                                    </td>
+                                </tr>
+                            </c:when>
+                            <c:otherwise>
+                                <c:forEach items="${employees}" var="emp">
+                                    <tr>
+                                        <td>${emp.empId}</td>
+                                        <td>${emp.name}</td>
+                                        <td>
+                                            <span class="badge rounded-pill bg-${emp.status == 'Allocated' ? 'success' : 
+                                                emp.status == 'Under Training' ? 'info' :
+                                                emp.status == 'Terminated' ? 'danger' : 
+                                                emp.status == 'Resigned' ? 'warning' : 'secondary'}">
+                                                ${emp.status}
+                                            </span>
+                                        </td>
+                                        <td>${emp.grade}</td>
+                                        <td>${emp.bu}</td>
+                                        <td>
+                                            <c:choose>
+                                                <c:when test="${empty emp.mprNo}">
+                                                    <span class="badge bg-danger">No MPR</span>
+                                                </c:when>
+                                                <c:otherwise>
+                                                    ${emp.mprNo}
+                                                </c:otherwise>
+                                            </c:choose>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group">
+                                                <a href="${pageContext.request.contextPath}/employee?empId=${emp.empId}" 
+                                                   class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener noreferrer">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                                        onclick="confirmDelete('${emp.empId}')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </c:forEach>
+                            </c:otherwise>
+                        </c:choose>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete this employee? This action cannot be undone.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteForm" method="post" action="${pageContext.request.contextPath}/employee">
+                    <input type="hidden" name="action" value="delete"/>
+                    <input type="hidden" name="empId" id="deleteEmpId"/>
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Handle date field dependency
+document.getElementById('dateField').addEventListener('change', function() {
+    var startDate = document.getElementById('startDate');
+    var endDate = document.getElementById('endDate');
+    startDate.disabled = !this.value;
+    endDate.disabled = !this.value;
+    if (!this.value) {
+        startDate.value = '';
+        endDate.value = '';
     }
-    
-    private void logError(StringBuilder log, String empId, String error) {
-        log.append("EMPID ").append(empId != null ? empId : "Unknown")
-           .append(": ").append(error).append("\n");
-    }
-    
-    @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) 
-            throws ServletException, IOException {
-        StringBuilder log = new StringBuilder();
-        StringBuilder summary = new StringBuilder();
-        int inserted = 0;
-        int updated = 0;
-        int failed = 0;
-        List<String> updatedEmpIds = new ArrayList<>();
-        boolean updateExisting = Boolean.parseBoolean(req.getParameter("updateExisting"));
-        
-        try {
-            Part filePart = req.getPart("file");
-            if (filePart == null || filePart.getSize() == 0) {
-                req.setAttribute("errorLog", "No file uploaded");
-                req.getRequestDispatcher("/jsp/upload.jsp").forward(req, resp);
-                return;
-            }
+});
 
-            String fileName = filePart.getSubmittedFileName();
-            if (!fileName.toLowerCase().endsWith(".xlsx")) {
-                req.setAttribute("errorLog", "Please upload an Excel file (.xlsx)");
-                req.getRequestDispatcher("/jsp/upload.jsp").forward(req, resp);
-                return;
-            }
-
-            // Use the positional parser since your Excel files follow the exact template order:
-            // 0=EMP_ID,1=NAME,2=GENDER,3=DOJ,4=NSBT_BATCH_NO,5=STATUS,6=GRADE,7=BU,8=MPR_NO,9=IO_NAME,10=RELEASED_DATE,11=RESIGNATION_DATE
-            org.trainman.service.util.ExcelParser.ParseResult parseResult;
-            try {
-                parseResult = ExcelParser.parse(filePart.getInputStream());
-            } catch (Exception pe) {
-                req.setAttribute("errorLog", "Failed to parse Excel file: " + pe.getMessage());
-                req.getRequestDispatcher("/jsp/upload.jsp").forward(req, resp);
-                return;
-            }
-
-            if (parseResult.getErrors() != null && !parseResult.getErrors().isEmpty()) {
-                // Show mapping/diagnostic + any validation issues
-                req.setAttribute("errorLog", String.join("\n", parseResult.getErrors()));
-                req.getRequestDispatcher("/jsp/upload.jsp").forward(req, resp);
-                return;
-            }
-
-            if (parseResult.getEmployees() == null || parseResult.getEmployees().isEmpty()) {
-                req.setAttribute("errorLog", "No valid records found in the file");
-                req.getRequestDispatcher("/jsp/upload.jsp").forward(req, resp);
-                return;
-            }
-
-            // Process parsed employees
-            for (Employee employee : parseResult.getEmployees()) {
-                try {
-                    // Server-side validation: ensure employee obeys business rules before DB operations
-                    List<String> rowValidation = ValidationUtil.validate(employee);
-                    if (rowValidation != null && !rowValidation.isEmpty()) {
-                        failed++;
-                        logError(log, employee.getEmpId(), "Validation failed: " + String.join(", ", rowValidation));
-                        continue;
-                    }
-                    Employee existing = dao.findByEmpId(employee.getEmpId());
-                    if (existing != null) {
-                        if (updateExisting) {
-                            // Update existing employee (Employee primary key is empId)
-                            dao.update(employee);
-                            updated++;
-                            updatedEmpIds.add(employee.getEmpId());
-                        } else {
-                            logError(log, employee.getEmpId(), "Record already exists");
-                            failed++;
-                        }
-                    } else {
-                        dao.insert(employee);
-                        inserted++;
-                    }
-                } catch (Exception e) {
-                    failed++;
-                    logError(log, employee.getEmpId(), e.getMessage());
-                }
-            }
-
-        } catch (Exception ex) {
-            logError(log, null, "Error processing file: " + ex.getMessage());
-            failed++;
-        }
-
-        // Build summary message
-        summary.append(String.format("Upload Results:\n"));
-        summary.append(String.format("Inserted: %d | Updated: %d | Failed: %d\n",
-            inserted, updated, failed));
-
-        if (!updatedEmpIds.isEmpty()) {
-            summary.append("Updated EMPIDs: ")
-                  .append(String.join(", ", updatedEmpIds))
-                  .append("\n");
-        }
-
-        if (inserted > 0) {
-            summary.append("Successfully inserted ").append(inserted).append(" new records\n");
-        }
-
-        if (log.length() > 0) {
-            summary.append("\nDetails:\n").append(log);
-        }
-
-        req.setAttribute(failed > 0 ? "errorLog" : "message", summary.toString());
-        req.getRequestDispatcher("/jsp/upload.jsp").forward(req, resp);
-    }
+// Delete confirmation
+function confirmDelete(empId) {
+    document.getElementById('deleteEmpId').value = empId;
+    var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    deleteModal.show();
 }
 
+// Form reset handler
+document.querySelector('button[type="reset"]').addEventListener('click', function(e) {
+    e.preventDefault();
+    document.getElementById('searchForm').reset();
+    window.location = '${pageContext.request.contextPath}/search';
+});
+</script>
+
+<jsp:include page="fragments/messages.jsp"/>
+<jsp:include page="fragments/footer.jsp"/>
