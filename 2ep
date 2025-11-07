@@ -1,0 +1,28 @@
+
+    public List<String> getDistinctBu() throws SQLException {
+        String sql = String.format("SELECT DISTINCT BU FROM %s WHERE BU IS NOT NULL ORDER BY BU", TABLE_NAME);
+        List<String> result = new ArrayList<>();
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String val = rs.getString(1);
+                if (val != null && !val.trim().isEmpty()) result.add(val.trim());
+            }
+        }
+        return result;
+    }
+
+    public List<String> getDistinctNsbtBatchNos() throws SQLException {
+        String sql = String.format("SELECT DISTINCT NSBT_BATCH_NO FROM %s WHERE NSBT_BATCH_NO IS NOT NULL ORDER BY NSBT_BATCH_NO", TABLE_NAME);
+        List<String> result = new ArrayList<>();
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String val = rs.getString(1);
+                if (val != null && !val.trim().isEmpty()) result.add(val.trim());
+            }
+        }
+        return result;
+    }
