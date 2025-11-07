@@ -1,0 +1,9 @@
+
+ try {
+                    req.setAttribute("buOptions", dao.getDistinctBu());
+                    req.setAttribute("nsbtBatchOptions", dao.getDistinctNsbtBatchNos());
+                } catch (Exception e) {
+                    // don't fail the whole request if dropdown fetch fails; log and continue
+                    req.setAttribute("buOptions", new java.util.ArrayList<>());
+                    req.setAttribute("nsbtBatchOptions", new java.util.ArrayList<>());
+                }
