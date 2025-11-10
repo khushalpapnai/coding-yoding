@@ -1,0 +1,167 @@
+public class ExcelExportUtil {
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd-MMM-yyyy");
+    private static final String[] HEADERS = {
+        "EMP_ID","NAME","GENDER","DOJ","NSBT_BATCH_NO",
+        "STATUS","GRADE","RANKING","BU","MPR_NO","IO_NAME",
+        "RELEASED_DATE","RESIGNATION_DATE","DAYS_WITHOUT_MPR","CREATED_AT","UPDATED_AT"
+    };
+
+    // Allowed picklist values (same as template)
+    private static final String[] STATUS_VALUES = {
+        "Under Training","Allocated","Temp Allocation","Waiting for Allocation","Resigned","Terminated"
+    };
+    private static final String[] GENDER_VALUES = { "Male", "Female", "Other" };
+    private static final String[] GRADE_VALUES = { "A+", "A", "B", "C", "D" };
+
+    public static void export(List<Employee> employees, OutputStream out) throws IOException {
+        try (Workbook wb = new XSSFWorkbook()) {
+            Sheet sheet = wb.createSheet("Employee Data");
+
+            // Styles
+            CellStyle headerStyle = createHeaderStyle(wb);
+            CellStyle dateStyle = createDateStyle(wb);
+            CellStyle warningStyle = createWarningStyle(wb);
+
+            // Header row
+            Row header = sheet.createRow(0);
+            for (int i = 0; i < HEADERS.length; i++) {
+                Cell cell = header.createCell(i);
+                cell.setCellValue(HEADERS[i]);
+                cell.setCellStyle(headerStyle);
+                sheet.setColumnWidth(i, 5200);
+            }
+
+            // Add data validation (drop-downs) for rows 1..1000 (or dynamic size)
+            DataValidationHelper dvHelper = sheet.getDataValidationHelper();
+
+            // Status column index = 5
+            addListValidation(sheet, dvHelper, STATUS_VALUES, 1, Math.max(1000, employees.size() + 5), 5, 5);
+
+            // Gender column index = 2
+            addListValidation(sheet, dvHelper, GENDER_VALUES, 1, Math.max(1000, employees.size() + 5), 2, 2);
+
+            // Grade column index = 6
+            addListValidation(sheet, dvHelper, GRADE_VALUES, 1, Math.max(1000, employees.size() + 5), 6, 6);
+
+            // Fill rows
+            int rowNum = 1;
+            for (Employee emp : employees) {
+                Row row = sheet.createRow(rowNum++);
+
+                row.createCell(0).setCellValue(nullSafe(emp.getEmpId()));
+                row.createCell(1).setCellValue(nullSafe(emp.getName()));
+                row.createCell(2).setCellValue(nullSafe(emp.getGender()));
+                if (emp.getDoj() != null) {
+                    Cell dojCell = row.createCell(3);
+                    dojCell.setCellValue(emp.getDoj().format(DATE_FORMAT));
+                    dojCell.setCellStyle(dateStyle);
+                } else {
+                    row.createCell(3).setCellValue("");
+                }
+                row.createCell(4).setCellValue(nullSafe(emp.getNsbtBatchNo()));
+                row.createCell(5).setCellValue(nullSafe(emp.getStatus()));
+                row.createCell(6).setCellValue(nullSafe(emp.getGrade()));
+                row.createCell(7).setCellValue(nullSafe(emp.getRanking()));
+                row.createCell(8).setCellValue(nullSafe(emp.getBu()));
+                row.createCell(9).setCellValue(nullSafe(emp.getMprNo()));
+                row.createCell(10).setCellValue(nullSafe(emp.getIoName()));
+
+                if (emp.getReleasedDate() != null) {
+                    Cell releasedCell = row.createCell(11);
+                    releasedCell.setCellValue(emp.getReleasedDate().format(DATE_FORMAT));
+                    releasedCell.setCellStyle(dateStyle);
+                } else {
+                    row.createCell(11).setCellValue("");
+                }
+
+                if (emp.getResignationDate() != null) {
+                    Cell resignCell = row.createCell(12);
+                    resignCell.setCellValue(emp.getResignationDate().format(DATE_FORMAT));
+                    resignCell.setCellStyle(dateStyle);
+                } else {
+                    row.createCell(12).setCellValue("");
+                }
+
+                // days without mpr (nullable integer)
+                Cell daysCell = row.createCell(13);
+                Integer days = emp.getDaysWithoutMpr();
+                if (days != null) {
+                    daysCell.setCellValue(days);
+                    if (days > 30) {
+                        daysCell.setCellStyle(warningStyle);
+                    }
+                } else {
+                    daysCell.setCellValue("");
+                }
+
+                if (emp.getCreatedAt() != null) {
+                    Cell createdCell = row.createCell(14);
+                    createdCell.setCellValue(emp.getCreatedAt().format(DATE_FORMAT));
+                    createdCell.setCellStyle(dateStyle);
+                } else {
+                    row.createCell(14).setCellValue("");
+                }
+
+                if (emp.getUpdatedAt() != null) {
+                    Cell updatedCell = row.createCell(15);
+                    updatedCell.setCellValue(emp.getUpdatedAt().format(DATE_FORMAT));
+                    updatedCell.setCellStyle(dateStyle);
+                } else {
+                    row.createCell(15).setCellValue("");
+                }
+            }
+
+            // Autosize columns (reasonable limit)
+            for (int i = 0; i < HEADERS.length; i++) {
+                sheet.autoSizeColumn(i);
+                int current = sheet.getColumnWidth(i);
+                sheet.setColumnWidth(i, Math.max(current, 4000));
+            }
+
+            wb.write(out);
+        }
+    }
+
+    private static void addListValidation(Sheet sheet, DataValidationHelper dvHelper,
+                                          String[] list, int firstRow, int lastRow, int firstCol, int lastCol) {
+        DataValidationConstraint constraint = dvHelper.createExplicitListConstraint(list);
+        CellRangeAddressList addressList = new CellRangeAddressList(firstRow, lastRow, firstCol, lastCol);
+        DataValidation validation = dvHelper.createValidation(constraint, addressList);
+        validation.setShowErrorBox(true);
+        // For newer POI versions setSuppressDropDownArrow(false) if needed
+        sheet.addValidationData(validation);
+    }
+
+    private static CellStyle createHeaderStyle(Workbook wb) {
+        CellStyle style = wb.createCellStyle();
+        Font font = wb.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+        style.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        return style;
+    }
+
+    private static CellStyle createDateStyle(Workbook wb) {
+        CellStyle style = wb.createCellStyle();
+        CreationHelper createHelper = wb.getCreationHelper();
+        style.setDataFormat(createHelper.createDataFormat().getFormat("dd-MMM-yyyy"));
+        return style;
+    }
+
+    private static CellStyle createWarningStyle(Workbook wb) {
+        CellStyle style = wb.createCellStyle();
+        style.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
+    }
+
+    private static String nullSafe(String s) {
+        return s == null ? "" : s;
+    }
+}
