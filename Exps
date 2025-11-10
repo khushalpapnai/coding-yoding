@@ -1,0 +1,58 @@
+@WebServlet("/export")
+public class ExportServlet extends HttpServlet {
+    private final EmployeeDAO dao = new EmployeeDAOImpl();
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        try {
+            FilterSpec spec = new FilterSpec();
+
+            String[] statusArr = req.getParameterValues("status");
+            if (statusArr != null) {
+                spec.setStatuses(Arrays.stream(statusArr)
+                                      .filter(s -> s != null && !s.trim().isEmpty())
+                                      .collect(Collectors.toList()));
+            }
+
+            spec.setEmpId(req.getParameter("empId"));
+            spec.setName(req.getParameter("name"));
+
+            String dateField = req.getParameter("dateField");
+            if (dateField != null && !dateField.trim().isEmpty()) {
+                spec.setDateField(dateField);
+                try {
+                    String start = req.getParameter("startDate");
+                    String end = req.getParameter("endDate");
+                    if (start != null && !start.trim().isEmpty()) {
+                        spec.setStartDate(LocalDate.parse(start));
+                    }
+                    if (end != null && !end.trim().isEmpty()) {
+                        spec.setEndDate(LocalDate.parse(end));
+                    }
+                } catch (Exception e) {
+                    resp.setContentType("text/plain");
+                    resp.getWriter().write("Invalid date format. Please use YYYY-MM-DD");
+                    return;
+                }
+            }
+
+            List<Employee> employees = dao.search(spec);
+            if (employees.isEmpty()) {
+                resp.setContentType("text/plain");
+                resp.getWriter().write("No records found matching the criteria");
+                return;
+            }
+
+            String timestamp = String.valueOf(System.currentTimeMillis());
+            String filename = String.format("employees_export_%s.xlsx", timestamp);
+
+            resp.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            resp.setHeader("Content-Disposition", "attachment; filename=" + filename);
+
+            ExcelExportUtil.export(employees, resp.getOutputStream());
+        } catch (Exception e) {
+            resp.setContentType("text/plain");
+            resp.getWriter().write("Error exporting data: " + e.getMessage());
+        }
+    }
+}
